@@ -1,10 +1,10 @@
 import serial
 import serial.tools.list_ports
 
-from typing import Any, Optional, Callable
+from typing import Any, Optional, Dict
 import warnings
 
-from syr_pump.exception import *
+from src.syrpp.exception import *
 
 
 class SyrPump:
@@ -132,7 +132,7 @@ class SyrPump:
         self._check_range(phase, 'phase')
         self._cmd(address, 'PHN', phase)
 
-    def get_function(self, address: int) -> dict[str, Any]:
+    def get_function(self, address: int) -> Dict[str, Any]:
         """
         return True if buzzer is on continuously or beeping
         """
@@ -158,7 +158,7 @@ class SyrPump:
             args.append(data)
         self._cmd(address, 'BUZ', *args)
 
-    def get_rate(self, address: int) -> dict[str, Any]:
+    def get_rate(self, address: int) -> Dict[str, Any]:
         r = self._cmd(address, 'RAT')
         return dict(
             value=float(r['data'][:-2]),
@@ -179,7 +179,7 @@ class SyrPump:
         d = self._from_dict_value(self.PUMP_DIRECTION, direction)
         self._cmd(address, 'DIR', d)
 
-    def get_com_mode(self, address: int) -> dict[str, Any]:
+    def get_com_mode(self, address: int) -> Dict[str, Any]:
         r = self._cmd(address, 'SAF')
         timeout = int(r['data'])
         if timeout == 0:
@@ -273,7 +273,7 @@ class SyrPump:
     def stop_program(self, address: int):
         self._cmd(address, 'STP')
 
-    def get_volume_dispensed(self, address: int) -> dict[str, Any]:
+    def get_volume_dispensed(self, address: int) -> Dict[str, Any]:
         r = self._cmd(address, 'DIS')
         assert r['data'][0] == 'I' and 'W' in r['data'], "infusion/withdrawn keyword not found"
         unit = r['data'][-2:]
@@ -375,10 +375,3 @@ class SyrPump:
         assert type in SyrPump.DATA_RANGE.keys(), f"unknown data type {type}"
         r = SyrPump.DATA_RANGE[type]
         assert r[0] <= v <= r[1], f"{v} out of range for {type} data"
-
-
-if __name__ == '__main__':
-    ports = serial.tools.list_ports.comports()
-    p = SyrPump('COM7')
-    r = p.get_firmware_version(1)
-    print(r)

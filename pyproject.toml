@@ -1,0 +1,8 @@
+[project]
+name = "syrpp"
+version = "0.1"
+authors = [
+    { name="Xun Yuan", email="yuanxun2000@outlook.com" },
+]
+description = "open-sourced Python controller for syringe pumps via RS232 serial communication"
+readme = "README.md"
