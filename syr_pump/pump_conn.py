@@ -1,6 +1,10 @@
 import serial
 import serial.tools.list_ports
-from typing import Any, Optional
+
+from typing import Any, Optional, Callable
+import warnings
+
+from syr_pump.exception import *
 
 
 class SyrPump:
@@ -22,11 +26,11 @@ class SyrPump:
     }
 
     ERROR = {
-        '': "command is not recognized (‘?’ only)",
-        'NA': "command is not currently applicable",
-        'OOR': "command data is out of range",
-        'COM': "invalid communications packet received",
-        'IGN': "command ignored due to a simultaneous new phase start"
+        '': CommandNotRecognized,
+        'NA': CommandNotAvailable,
+        'OOR': DataOutOfRange,
+        'COM': InvalidComPacket,
+        'IGN': CommandIgnored
     }
 
     PUMP_DIRECTION = {
@@ -321,7 +325,8 @@ class SyrPump:
         elif status == 'A':
             assert response[3] == '?', "'?' missing for alarm response"
             alarm_type = response[4]
-            self._from_dict_key(self.ALARM, alarm_type)
+            msg = self._from_dict_key(self.ALARM, alarm_type)
+            warnings.warn(msg)
             res['alarm'] = alarm_type
             data = response[5:]
         else:
@@ -329,8 +334,8 @@ class SyrPump:
         if data:
             if data[0] == '?':
                 error = data[1:]
-                self._from_dict_key(self.ERROR, error)
-                res['error'] = error
+                e = self._from_dict_key(self.ERROR, error)
+                raise e
             else:
                 res['data'] = data
         return res
@@ -375,6 +380,5 @@ class SyrPump:
 if __name__ == '__main__':
     ports = serial.tools.list_ports.comports()
     p = SyrPump('COM7')
-    p.set_function(0, 'rate')
-    r = p.get_function(0)
+    r = p.get_firmware_version(1)
     print(r)
