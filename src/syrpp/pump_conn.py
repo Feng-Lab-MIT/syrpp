@@ -121,6 +121,19 @@ class SyrPump:
     def __del__(self):
         self.serial.close()
 
+    def get_avail_address(self) -> list[int]:
+        if self.serial.timeout is None:
+            self.set_timeout()
+        rng = self.DATA_RANGE['address']
+        address = list()
+        for a in range(rng[0], rng[1] + 1):
+            try:
+                self._cmd(a)
+            except TimeoutError:
+                continue
+            address.append(a)
+        return address
+
     def set_config(self, config):
         if isinstance(config, str):
             config = Path(config)
@@ -380,6 +393,26 @@ class SyrPump:
         if not code:
             ret = self.PROMPT[ret]
         return ret
+
+    def set_timeout(
+            self,
+            address: Optional[Union[int, list[int]]] = None,
+            n_times: int = 10,
+            multiple: int = 4
+    ):
+        if address is None:
+            address = 0
+        if isinstance(address, int):
+            address = [address]
+        from time import time_ns
+        start = time_ns()
+        for a in address:
+            for _ in range(n_times):
+                self._cmd(a)
+        t = time_ns() - start
+        t_sec = t * 1e-9 / (n_times * len(address))
+        self.serial.timeout = multiple * t_sec
+        return self.serial.timeout
 
     def _raw_cmd(self, cmd: str):
         send = cmd + '\r\n'
