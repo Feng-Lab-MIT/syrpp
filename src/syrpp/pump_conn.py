@@ -246,6 +246,7 @@ class SyrPump:
             address: Optional[Union[List[int], int]] = None,
             param: Optional[Union[List[str], str]] = None,
             save_to: Optional[Union[str, Path]] = None,
+            combine: bool = True
     ):
         if isinstance(address, int):
             address = [address]
@@ -283,7 +284,7 @@ class SyrPump:
                         phase['function'] = self.PHASE_FUNCTION[phase['function']]
                     c[_p] = prog
                 elif p_code in self.GET_CMD:
-                    if p_code not in self.RATE_PARAM:
+                    if p_code not in self.RATE_PARAM and p_code != 'PHN':
                         if p_code == 'IN':
                             pins = dict()
                             for pin in self.TTL_INPUT_PIN:
@@ -295,6 +296,23 @@ class SyrPump:
                 else:
                     raise ValueError(f'invalid attribute: {p}')
             config.append(c)
+        if combine:
+            _config = list()
+            for c in config:
+                current = c.copy()
+                current.pop('address')
+                found = False
+                for _c in _config:
+                    compared = _c.copy()
+                    compared.pop('address')
+                    if current == compared:
+                        _c['address'].append(c['address'])
+                        found = True
+                        break
+                if not found:
+                    c['address'] = [c['address']]
+                    _config.append(c)
+            config = _config
         if save_to is not None:
             with open(save_to, 'w') as f:
                 json.dump(config, f)
@@ -479,7 +497,7 @@ class SyrPump:
         """
         assert pin in self.TTL_INPUT_PIN, f"pin {pin} not supported"
         r = self._cmd(address, 'IN', pin)
-        return r['data']
+        return int(r['data'])
 
     def get_buzzer(self, address: int) -> bool:
         """
