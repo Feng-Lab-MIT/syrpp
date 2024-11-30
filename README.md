@@ -34,7 +34,7 @@ NE1000V3.934
 
 ### Bulk Setup
 
-`syrpp` allows users to setup pumps with a `.json` configuration file. It's demonstrated in [this example script](.\test\config.py).
+`syrpp` allows users to setup pumps with a `.json` configuration file. It's demonstrated in [this example script](./test/config.py).
 
 ```python
 p.set_config('./prog/man_ex4.json')
