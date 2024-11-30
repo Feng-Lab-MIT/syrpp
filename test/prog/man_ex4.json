@@ -1,8 +1,8 @@
 [
   {
-    "address": 0,
+    "address": "all",
     "diameter": 26.59,
-    "clear": [
+    "clear_volume_dispensed": [
       "infuse", "withdraw"
     ],
     "com_mode": "basic",
@@ -14,7 +14,7 @@
       "5": 0
     },
     "buzzer": false,
-    "program": [
+    "function": [
       {
         "function": "rate",
         "rate": {

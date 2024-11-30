@@ -37,6 +37,10 @@ class SyrPump:
         'DIA', 'PHN', 'FUN', 'RAT', 'VOL', 'DIR', 'DIS',
         'SAF', 'AL', 'PF', 'TRG', 'BP', 'IN', 'BUZ', 'VER'
     ]
+    SET_CMD = [
+        'DIA', 'PHN', 'FUN', 'RAT', 'VOL', 'DIR', 'CLD',
+        'SAF', 'AL', 'PF', 'TRG', 'BP', 'OUT', 'BUZ'
+    ]
 
     PROMPT = {
         'I': "infusing",
@@ -189,34 +193,9 @@ class SyrPump:
                 for k, v in item.items():
                     if k == 'address':
                         continue
-                    # other configs
-                    # TODO: use getattr here
-                    elif k == 'diameter':
-                        self.set_diameter(address=a, diameter=v)
-                    elif k == 'clear':
-                        if isinstance(v, str):
-                            v = [v]
-                        for d in v:
-                            self.clear_dispensed_volume(address=a, direction=d)
-                    elif k == 'com_mode':
-                        self.set_com_mode(address=a, mode=v)
-                    elif k == 'alarm':
-                        self.set_alarm(address=a, buzzer=v)
-                    elif k == 'power_fail':
-                        self.set_power_fail(address=a, power_fail=v)
-                    elif k == 'trigger':
-                        self.set_trigger(address=a, trigger=v)
-                    elif k == 'key_beep':
-                        self.set_key_beep(address=a, key_beep=v)
-                    elif k == 'ttl_output':
-                        for pin, level in v.items():
-                            self.set_ttl_output(address=a, pin=int(pin), level=level)
-                    elif k == 'buzzer':
-                        self.set_buzzer(address=a, buzzer=v)
-                    # program
-                    elif k == 'program':
-                        prog = item['program']
-                        for i, func in enumerate(prog):
+                    k_code = self._from_dict_value(self.COMMAND, k.replace('_', ' '))
+                    if k_code == 'FUN':
+                        for i, func in enumerate(v):
                             phase = i + 1
                             self.set_phase(address=a, phase=phase)
                             kwargs = dict()
@@ -229,15 +208,30 @@ class SyrPump:
                                     kwargs['data'] = list(data.values())[0]
                             self.set_function(address=a, function=f, **kwargs)
                             if f_code in self.RATE_FUNCTION:
-                                for p_code in self.RATE_PARAM:
-                                    p = self.COMMAND[p_code]
-                                    if p in func:
-                                        if p == 'rate':
-                                            self.set_rate(address=a, **func['rate'])
-                                        elif p == 'volume':
-                                            self.set_volume(address=a, **func['volume'])
-                                        elif p == 'direction':
-                                            self.set_direction(address=a, direction=func['direction'])
+                                for _k, _v in func.items():
+                                    _k_code = self._from_dict_value(self.COMMAND, _k)
+                                    if _k_code == 'FUN':
+                                        continue
+                                    elif _k in self.RATE_PARAM:
+                                        p = func[_k]
+                                        if isinstance(p, dict):
+                                            getattr(self, f"set_{_k}")(a, **p)
+                                        else:
+                                            getattr(self, f"set_{_k}")(a, p)
+                    elif k_code in self.SET_CMD:
+                        if k_code not in self.RATE_PARAM and k_code != 'PHN':
+                            if k_code == 'CLD':
+                                if isinstance(v, str):
+                                    v = [v]
+                                for d in v:
+                                    self.clear_dispensed_volume(address=a, direction=d)
+                            elif k_code == 'OUT':
+                                for pin, level in v.items():
+                                    self.set_ttl_output(address=a, pin=int(pin), level=level)
+                            else:
+                                # functions have different names for value, therefore
+                                # not kwargs here
+                                getattr(self, f"set_{k}")(a, v)
                     else:
                         raise ValueError(f'invalid attribute: {k}')
 
