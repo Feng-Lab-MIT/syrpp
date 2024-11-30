@@ -73,14 +73,42 @@ class SyrPump:
         'REV': 'reverse'
     }
 
+    TRIGGER = {
+        'F': ['falling edge', 'falling'],
+        'R': ['rising edge', 'rising'],
+        'L': ['low level', 'low'],
+        'H': ['high level', 'high']
+    }
+    TRIGGER_START_STOP = {
+        # start, stop
+        'FF': 'FT',
+        'FR': 'FH',
+        'RR': 'F2',
+        'RF': 'LE',
+        'F_': 'ST',
+        'R_': 'T2',
+        '_F': 'SP',
+        '_R': 'P2',
+        'L_': 'RL',
+        'H_': 'RH',
+        '_L': 'SL',
+        '_H': 'SH',
+        '__': 'OF'
+    }
     TRIGGER_SETUP = {
-        # falling edge starts or stops the pumping program
-        'FT': ['foot switch', 'foot'],
-        # falling edge stops the pumping program
-        # rising edge starts the pumping program
-        'LE': ['level control', 'level'],
-        # falling edge starts the pumping program
-        'ST': ['start only', 'start']
+        'FT': 'foot switch',
+        'FH': 'foot switch hold',
+        'F2': 'foot switch reverse',
+        'LE': 'level',
+        'ST': 'start only',
+        'T2': 'start only reversed',
+        'SP': 'stop only',
+        'P2': 'stop only reversed',
+        'RL': 'start on low',
+        'RH': 'start on high',
+        'SL': 'stop on low',
+        'SH': 'stop on high',
+        'OF': 'trigger off'
     }
 
     RATE_FUNCTION = ['RAT', 'INC', 'DEC']
@@ -460,15 +488,47 @@ class SyrPump:
     def set_power_fail(self, address: int, power_fail: bool):
         self._cmd(address, 'PF', int(power_fail))
 
-    def get_trigger(self, address: int) -> str:
+    def get_trigger(self, address: int, ret_type: str = 'start stop') -> str:
         """
         return True if buzzer is on continuously or beeping
         """
         r = self._cmd(address, 'TRG')
-        return self._from_dict_key(self.TRIGGER_SETUP, r['data'])
+        ret = r['data']
+        if ret_type == 'code':
+            return ret
+        if ret_type == 'name':
+            return self._from_dict_key(self.TRIGGER_SETUP, ret)
+        ret = self._from_dict_value(self.TRIGGER_START_STOP, ret)
+        d = dict()
+        for k, v in zip(['start', 'stop'], ret):
+            d[k] = v
+        if ret_type == 'start stop code':
+            return d
+        if ret_type == 'start stop':
+            for k, v in d.items():
+                d[k] = self._from_dict_key(self.TRIGGER, v)
+            return d
+        raise ValueError(f"unexpected return type {ret_type}")
 
-    def set_trigger(self, address: int, trigger: str):
-        self._cmd(address, 'TRG', self._from_dict_value(self.TRIGGER_SETUP, trigger))
+    def set_trigger(
+            self,
+            address: int,
+            trigger: Optional[str] = None,
+            start: Optional[str] = None,
+            stop: Optional[str] = None
+    ):
+        if trigger is not None:
+            assert start is None and stop is None, "provide either trigger name or start/stop conditions"
+            t_code = self._from_dict_value(self.TRIGGER_SETUP, trigger)
+        else:
+            codes = list()
+            for s in [start, stop]:
+                if s is None:
+                    codes.append('_')
+                else:
+                    codes.append(self._from_dict_value(self.TRIGGER, s))
+            t_code = self._from_dict_key(self.TRIGGER_START_STOP, ''.join(codes))
+        self._cmd(address, 'TRG', t_code)
 
     def get_key_beep(self, address: int) -> bool:
         r = self._cmd(address, 'BP')
