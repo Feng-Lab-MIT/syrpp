@@ -5,11 +5,39 @@ from typing import Any, Optional, Dict, Union, List
 import warnings
 from pathlib import Path
 import json
+import re
 
 from src.syrpp.exception import *
 
 
 class SyrPump:
+    COMMAND = {
+        'DIA': 'diameter',
+        'PHN': 'phase',
+        'FUN': 'function',
+        'RAT': 'rate',
+        'VOL': 'volume',
+        'DIR': 'direction',
+        'DIS': 'volume dispensed',
+        'CLD': 'clear volume dispensed',
+        'SAF': 'com mode',
+        'AL': 'alarm',
+        'PF': 'power fail',
+        'TRG': 'trigger',
+        'BP': 'key beep',
+        'OUT': 'ttl output',
+        'IN': 'ttl input',
+        'BUZ': 'buzzer',
+        'VER': 'firmware version',
+        'RUN': 'start program',
+        'STP': 'stop program'
+    }
+
+    GET_CMD = [
+        'DIA', 'PHN', 'FUN', 'RAT', 'VOL', 'DIR', 'DIS',
+        'SAF', 'AL', 'PF', 'TRG', 'BP', 'IN', 'BUZ', 'VER'
+    ]
+
     PROMPT = {
         'I': "infusing",
         'W': "withdrawing",
@@ -52,6 +80,7 @@ class SyrPump:
     }
 
     RATE_FUNCTION = ['RAT', 'INC', 'DEC']
+    RATE_PARAM = ['RAT', 'VOL', 'DIR']
 
     PHASE_FUNCTION = {
         # rate data functions
@@ -99,6 +128,9 @@ class SyrPump:
         'ttl': (0, 1),
         'timeout': (0, 255)
     }
+
+    TTL_INPUT_PIN = [2, 3, 4, 6]
+    TTL_OUTPUT_PIN = [5]
 
     def __init__(
             self,
@@ -197,14 +229,78 @@ class SyrPump:
                                     kwargs['data'] = list(data.values())[0]
                             self.set_function(address=a, function=f, **kwargs)
                             if f_code in self.RATE_FUNCTION:
-                                if 'rate' in func:
-                                    self.set_rate(address=a, **func['rate'])
-                                if 'volume' in func:
-                                    self.set_volume(address=a, **func['volume'])
-                                if 'direction' in func:
-                                    self.set_direction(address=a, direction=func['direction'])
+                                for p_code in self.RATE_PARAM:
+                                    p = self.COMMAND[p_code]
+                                    if p in func:
+                                        if p == 'rate':
+                                            self.set_rate(address=a, **func['rate'])
+                                        elif p == 'volume':
+                                            self.set_volume(address=a, **func['volume'])
+                                        elif p == 'direction':
+                                            self.set_direction(address=a, direction=func['direction'])
                     else:
                         raise ValueError(f'invalid attribute: {k}')
+
+    def get_config(
+            self,
+            address: Optional[Union[List[int], int]] = None,
+            param: Optional[Union[List[str], str]] = None,
+            save_to: Optional[Union[str, Path]] = None,
+    ):
+        if isinstance(address, int):
+            address = [address]
+        if address is None:
+            address = self.get_avail_address()
+        if isinstance(param, str):
+            param = [param]
+        if param is None:
+            param = [self.COMMAND[c] for c in self.GET_CMD]
+        if isinstance(save_to, str):
+            save_to = Path(save_to)
+        if save_to is not None:
+            assert save_to.suffix == '.json', f"{save_to.suffix} is not supported"
+        config = list()
+        for a in address:
+            c = dict(address=a)
+            for p in param:
+                _p = p.replace(' ', '_')
+                p_code = self._from_dict_value(self.COMMAND, p)
+                if p_code == 'FUN':
+                    rng = self.DATA_RANGE['phase']
+                    prog = list()
+                    for phase in range(rng[0], rng[1] + 1):
+                        self.set_phase(address=a, phase=phase)
+                        r = self.get_function(address=a, code=True)
+                        if r['function'] in self.RATE_FUNCTION:
+                            for p_extra_code in self.RATE_PARAM:
+                                p_extra = self.COMMAND[p_extra_code].replace(' ', '_')
+                                r[p_extra] = getattr(self, f'get_{p_extra}')(address=a)
+                        prog.append(r)
+                    # remove redundant stop phases
+                    while prog[-1]['function'] == 'STP':
+                        prog.pop(-1)
+                    for phase in prog:
+                        phase['function'] = self.PHASE_FUNCTION[phase['function']]
+                    c[_p] = prog
+                elif p_code in self.GET_CMD:
+                    if p_code not in self.RATE_PARAM:
+                        if p_code == 'IN':
+                            pins = dict()
+                            for pin in self.TTL_INPUT_PIN:
+                                pins[str(pin)] = getattr(self, f'get_{_p}')(address=a, pin=pin)
+                            c[_p] = pins
+                        else:
+                            r = getattr(self, f'get_{_p}')(address=a)
+                            c[_p] = r
+                else:
+                    raise ValueError(f'invalid attribute: {p}')
+            config.append(c)
+        if save_to is not None:
+            with open(save_to, 'w') as f:
+                json.dump(config, f)
+        else:
+            return config
+
 
     def get_diameter(self, address: int) -> float:
         r = self._cmd(address, 'DIA')
@@ -238,21 +334,30 @@ class SyrPump:
         self._check_range(phase, 'phase')
         self._cmd(address, 'PHN', phase)
 
-    def get_function(self, address: int) -> Dict[str, Any]:
+    def get_function(self, address: int, code: bool = False) -> Dict[str, Any]:
         """
         return True if buzzer is on continuously or beeping
         """
         r = self._cmd(address, 'FUN')
         ret = dict()
-        d = r['data'][-2:]
-        if d.isdigit():
+        if re.match(r'[0-9]\.[0-9]', (d := r['data'][-3:])):
+            f = r['data'][:-3]
+            assert f == 'PAS', "only pause can have n.n data"
+            ret['data'] = float(d)
+        elif (d := r['data'][-2]).isdigit():
             f = r['data'][:-2]
             assert f in self.PHASE_FUN_DATA.keys(), f"function {f} should not have data"
             ret['data'] = int(d)
         else:
             f = r['data']
         assert f in self.PHASE_FUNCTION, f"unknown function {f}"
-        ret['function'] = self._from_dict_key(self.PHASE_FUNCTION, f)
+        if f == 'PAS':
+            if ret['data'] == 0:
+                ret['data'] = 'trigger'
+        if code:
+            ret['function'] = f
+        else:
+            ret['function'] = self._from_dict_key(self.PHASE_FUNCTION, f)
         return ret
 
     def set_function(self, address: int, function: str, data: Optional[Union[int, str, float]] = None):
@@ -272,11 +377,16 @@ class SyrPump:
 
     def get_rate(self, address: int) -> Dict[str, Any]:
         r = self._cmd(address, 'RAT')
-        return dict(
-            value=float(r['data'][:-2]),
-            volume_unit=self._from_dict_key(self.VOLUME_UNITS, r['data'][-2]),
-            time_unit=self._from_dict_key(self.TIME_UNITS, r['data'][-1])
-        )
+        vu = r['data'][-2]
+        tu = r['data'][-1]
+        ret = dict()
+        if (vu in self.VOLUME_UNITS.keys() and tu in self.TIME_UNITS.keys()):
+            ret['value'] = float(r['data'][:-2])
+            ret['volume_unit'] = self._from_dict_key(self.VOLUME_UNITS, vu)
+            ret['time_unit'] = self._from_dict_key(self.TIME_UNITS, tu)
+        else:
+            ret['value'] = float(r['data'])
+        return ret
 
     def set_rate(self, address: int, value: float,
                  volume_unit: Optional[str] = None, time_unit: Optional[str] = None):
@@ -359,15 +469,15 @@ class SyrPump:
         """
         sets TTL level on user definable output pin on the TTL I/O connector
         """
-        assert pin == 5, f"only pin 5 is supported"
+        assert pin in self.TTL_OUTPUT_PIN, f"pin {pin} not supported"
         self._check_range(level, 'ttl')
         self._cmd(address, 'OUT', pin, level)
 
-    def get_ttl_input(self, address: int, level: int, pin: int):
+    def get_ttl_input(self, address: int, pin: int):
         """
         queries TTL level of pin on TTL I/O connector
         """
-        assert pin in [2, 3, 4, 6], f"pin {pin} not supported"
+        assert pin in self.TTL_INPUT_PIN, f"pin {pin} not supported"
         r = self._cmd(address, 'IN', pin)
         return r['data']
 
