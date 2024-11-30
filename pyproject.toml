@@ -1,6 +1,6 @@
 [project]
 name = "syrpp"
-version = "0.1"
+version = "0.2"
 authors = [
     { name="Xun Yuan", email="yuanxun2000@outlook.com" },
 ]
