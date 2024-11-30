@@ -148,37 +148,63 @@ class SyrPump:
             if isinstance(addr, int):
                 addr = [addr]
             elif isinstance(addr, str) and addr == 'all':
-                pass
-            elif isinstance(addr, Sequence):
+                addr = self.get_avail_address()
+            elif isinstance(addr, list):
                 pass
             else:
                 raise ValueError(f'invalid address: {addr}')
             for a in addr:
-                # other configs
-                if 'diameter' in item.keys():
-                    self.set_diameter(address=a, diameter=item['diameter'])
-                # program
-                if "program" in item.keys():
-                    prog = item['program']
-                    for i, func in enumerate(prog):
-                        phase = i + 1
-                        self.set_phase(address=a, phase=phase)
-                        kwargs = dict()
-                        f = func['function']
-                        f_code = self._from_dict_value(self.PHASE_FUNCTION, f)
-                        if f_code not in self.RATE_FUNCTION:
-                            data = {k: v for k, v in func.items() if k != 'function'}
-                            if len(data) >= 1:
-                                assert len(data) == 1, "only one data is allowed"
-                                kwargs['data'] = list(data.values())[0]
-                        self.set_function(address=a, function=f, **kwargs)
-                        if f_code in self.RATE_FUNCTION:
-                            if 'rate' in func:
-                                self.set_rate(address=a, **func['rate'])
-                            if 'volume' in func:
-                                self.set_volume(address=a, **func['volume'])
-                            if 'direction' in func:
-                                self.set_direction(address=a, direction=func['direction'])
+                for k, v in item.items():
+                    if k == 'address':
+                        continue
+                    # other configs
+                    # TODO: use getattr here
+                    elif k == 'diameter':
+                        self.set_diameter(address=a, diameter=v)
+                    elif k == 'clear':
+                        if isinstance(v, str):
+                            v = [v]
+                        for d in v:
+                            self.clear_dispensed_volume(address=a, direction=d)
+                    elif k == 'com_mode':
+                        self.set_com_mode(address=a, mode=v)
+                    elif k == 'alarm':
+                        self.set_alarm(address=a, buzzer=v)
+                    elif k == 'power_fail':
+                        self.set_power_fail(address=a, power_fail=v)
+                    elif k == 'trigger':
+                        self.set_trigger(address=a, trigger=v)
+                    elif k == 'key_beep':
+                        self.set_key_beep(address=a, key_beep=v)
+                    elif k == 'ttl_output':
+                        for pin, level in v.items():
+                            self.set_ttl_output(address=a, pin=int(pin), level=level)
+                    elif k == 'buzzer':
+                        self.set_buzzer(address=a, buzzer=v)
+                    # program
+                    elif k == 'program':
+                        prog = item['program']
+                        for i, func in enumerate(prog):
+                            phase = i + 1
+                            self.set_phase(address=a, phase=phase)
+                            kwargs = dict()
+                            f = func['function']
+                            f_code = self._from_dict_value(self.PHASE_FUNCTION, f)
+                            if f_code not in self.RATE_FUNCTION:
+                                data = {k: v for k, v in func.items() if k != 'function'}
+                                if len(data) >= 1:
+                                    assert len(data) == 1, "only one data is allowed"
+                                    kwargs['data'] = list(data.values())[0]
+                            self.set_function(address=a, function=f, **kwargs)
+                            if f_code in self.RATE_FUNCTION:
+                                if 'rate' in func:
+                                    self.set_rate(address=a, **func['rate'])
+                                if 'volume' in func:
+                                    self.set_volume(address=a, **func['volume'])
+                                if 'direction' in func:
+                                    self.set_direction(address=a, direction=func['direction'])
+                    else:
+                        raise ValueError(f'invalid attribute: {k}')
 
     def get_diameter(self, address: int) -> float:
         r = self._cmd(address, 'DIA')
@@ -357,7 +383,10 @@ class SyrPump:
         if n_time == 0, buzzer beeps continuously
         """
         # TODO: check why buzzer cannot be set true
-        self._cmd(address, 'BUZ', int(buzzer), n_time)
+        args = list()
+        if buzzer:
+            args.append(n_time)
+        self._cmd(address, 'BUZ', int(buzzer), *args)
 
     def start_program(self, address: int):
         self._cmd(address, 'RUN')

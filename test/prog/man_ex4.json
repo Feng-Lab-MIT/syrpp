@@ -2,6 +2,18 @@
   {
     "address": 0,
     "diameter": 26.59,
+    "clear": [
+      "infuse", "withdraw"
+    ],
+    "com_mode": "basic",
+    "alarm": false,
+    "power_fail": false,
+    "trigger": "foot",
+    "key_beep": false,
+    "ttl_output": {
+      "5": 0
+    },
+    "buzzer": false,
     "program": [
       {
         "function": "rate",
