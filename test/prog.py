@@ -1,7 +1,7 @@
 from syrpp import SyrPump
-import json
 
 p = SyrPump('COM7')
-with open('./prog/man_ex4.json', 'r') as f:
-    prog = json.load(f)
-p.set_program(prog)
+addr = 0
+if p.get_status(addr, code=True) != 'S':
+    p.stop_program(addr)
+p.set_config('./prog/man_ex4.json')

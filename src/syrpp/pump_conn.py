@@ -3,11 +3,11 @@ import serial.tools.list_ports
 
 from typing import Any, Optional, Dict, Union, List
 import warnings
+from pathlib import Path
+import json
 
 from src.syrpp.exception import *
 
-
-PumpProgram = List[Dict[str, Any]]
 
 class SyrPump:
     PROMPT = {
@@ -107,7 +107,7 @@ class SyrPump:
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
-            timeout=None
+            timeout=.05
     ):
         self.serial = serial.Serial(
             port=port,
@@ -121,8 +121,16 @@ class SyrPump:
     def __del__(self):
         self.serial.close()
 
-    def set_program(self, programs: PumpProgram):
-        for item in programs:
+    def set_config(self, config):
+        if isinstance(config, str):
+            config = Path(config)
+        if isinstance(config, Path):
+            assert config.suffix == '.json', f"{config.suffix} is not supported"
+            with open(config, 'r') as f:
+                config = json.load(f)
+        assert isinstance(config, list), \
+            f"config's top level must be a list, not {type(config)}"
+        for item in config:
             addr = item['address']
             if isinstance(addr, int):
                 addr = [addr]
@@ -132,29 +140,32 @@ class SyrPump:
                 pass
             else:
                 raise ValueError(f'invalid address: {addr}')
-            prog = item['program']
             for a in addr:
+                # other configs
                 if 'diameter' in item.keys():
                     self.set_diameter(address=a, diameter=item['diameter'])
-                for i, func in enumerate(prog):
-                    phase = i + 1
-                    self.set_phase(address=a, phase=phase)
-                    kwargs = dict()
-                    f = func['function']
-                    f_code = self._from_dict_value(self.PHASE_FUNCTION, f)
-                    if f_code not in self.RATE_FUNCTION:
-                        data = {k: v for k, v in func.items() if k != 'function'}
-                        if len(data) >= 1:
-                            assert len(data) == 1, "only one data is allowed"
-                            kwargs['data'] = list(data.values())[0]
-                    self.set_function(address=a, function=f, **kwargs)
-                    if f_code in self.RATE_FUNCTION:
-                        if 'rate' in func:
-                            self.set_rate(address=a, **func['rate'])
-                        if 'volume' in func:
-                            self.set_volume(address=a, **func['volume'])
-                        if 'direction' in func:
-                            self.set_direction(address=a, direction=func['direction'])
+                # program
+                if "program" in item.keys():
+                    prog = item['program']
+                    for i, func in enumerate(prog):
+                        phase = i + 1
+                        self.set_phase(address=a, phase=phase)
+                        kwargs = dict()
+                        f = func['function']
+                        f_code = self._from_dict_value(self.PHASE_FUNCTION, f)
+                        if f_code not in self.RATE_FUNCTION:
+                            data = {k: v for k, v in func.items() if k != 'function'}
+                            if len(data) >= 1:
+                                assert len(data) == 1, "only one data is allowed"
+                                kwargs['data'] = list(data.values())[0]
+                        self.set_function(address=a, function=f, **kwargs)
+                        if f_code in self.RATE_FUNCTION:
+                            if 'rate' in func:
+                                self.set_rate(address=a, **func['rate'])
+                            if 'volume' in func:
+                                self.set_volume(address=a, **func['volume'])
+                            if 'direction' in func:
+                                self.set_direction(address=a, direction=func['direction'])
 
     def get_diameter(self, address: int) -> float:
         r = self._cmd(address, 'DIA')
@@ -205,7 +216,7 @@ class SyrPump:
         ret['function'] = self._from_dict_key(self.PHASE_FUNCTION, f)
         return ret
 
-    def set_function(self, address: int, function: str, data: Optional[Union[int, str]] = None):
+    def set_function(self, address: int, function: str, data: Optional[Union[int, str, float]] = None):
         f = self._from_dict_value(self.PHASE_FUNCTION, function)
         args = list()
         args.append(f)
@@ -215,7 +226,8 @@ class SyrPump:
                 # pause and wait for trigger
                 if data == 'trigger':
                     data = 0
-            assert isinstance(data, int), f"data type for function {function} invalid"
+                elif isinstance(data, (float, int)):
+                    data = self._float(data, 2, 1)
             args.append(data)
         self._cmd(address, 'FUN', *args)
 
@@ -362,6 +374,13 @@ class SyrPump:
         r = self._cmd(address, 'VER')
         return r['data']
 
+    def get_status(self, address: int, code: bool = False) -> str:
+        r = self._cmd(address)
+        ret = r['prompt']
+        if not code:
+            ret = self.PROMPT[ret]
+        return ret
+
     def _raw_cmd(self, cmd: str):
         send = cmd + '\r\n'
         send = send.encode('utf-8')
@@ -369,19 +388,24 @@ class SyrPump:
         assert num == len(send), \
             f"only {num} of {len(send)} bytes sent to syringe pump via serial"
         receive = self.serial.read_until(b'\x03')
+        if self.serial.timeout is not None and receive == b"":
+            raise TimeoutError
         assert receive[0] == 2 and receive[-1] == 3, \
             f"received bytes structure invalid"
         receive = receive[1:-1].decode('utf-8')
         return receive
 
-    def _cmd(self, addr: int, cmd: str, *args):
+    def _cmd(self, addr: int, cmd: str = '', *args):
         """
         return the code only because this is a private method
         """
         self._check_range(addr, 'address')
         args = [str(a) if not isinstance(a, str) else a for a in args]
         fields = [str(addr), cmd, *args]
-        response = self._raw_cmd(''.join(fields))
+        try:
+            response = self._raw_cmd(''.join(fields))
+        except TimeoutError:
+            raise TimeoutError(f"no response from address {addr}")
         res = dict(
             address=int(response[:2])
         )
@@ -408,20 +432,23 @@ class SyrPump:
         return res
 
     @staticmethod
-    def _float(f: float) -> str:
+    def _float(f: float, max_digits: int = 4, max_decimal: int = 3) -> str:
         """
-        maximum of 4 digits plus 1 decimal point
-        maximum of 3 digits to the right of the decimal point
+        returns the truncated float number that the pump accepts
+        :param f: the orignal float number
+        :param max_digits: maximum of total digits (1 decimal point not included)
+        :param max_decimal: maximum of digits to the right of the decimal point
+        :return: the truncated float number
         """
-        assert 0 <= f <= 9999, f"float {f} out of range"
+        assert 0 <= f <= int('9' * max_digits), f"float {f} out of range"
         _f = f
-        f = str(round(f, 3))
+        f = str(round(f, max_decimal))
         if '.' in f:
-            if len(f) >= 5:
-                f = f[-5:]
+            if len(f) >= max_digits + 1:
+                f = f[-(max_digits + 1):]
         else:
-            if len(f) >= 4:
-                f = f[-4:]
+            if len(f) >= max_digits:
+                f = f[-max_digits:]
         return f
 
     @staticmethod
