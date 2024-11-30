@@ -1,0 +1,125 @@
+[
+  {
+    "address": 0,
+    "diameter": 26.59,
+    "program": [
+      {
+        "function": "rate",
+        "rate": {
+          "value": 750.0,
+          "volume_unit": "mL",
+          "time_unit": "hr"
+        },
+        "volume": {
+          "value": 0.5,
+          "unit": "mL"
+        },
+        "direction": "infuse"
+      },
+      {
+        "function": "rate",
+        "rate": {
+          "value": 300.0,
+          "volume_unit": "mL",
+          "time_unit": "hr"
+        },
+        "volume": {
+          "value": 1.5,
+          "unit": "mL"
+        },
+        "direction": "infuse"
+      },
+      {
+        "function": "beep"
+      },
+      {
+        "function": "pause",
+        "time": "trigger"
+      },
+      {
+        "function": "loop for",
+        "n_times": 2
+      },
+
+      {
+        "function": "rate",
+        "rate": {
+          "value": 750.0,
+          "volume_unit": "mL",
+          "time_unit": "hr"
+        },
+        "volume": {
+          "value": 0.5,
+          "unit": "mL"
+        },
+        "direction": "infuse"
+      },
+      {
+        "function": "rate",
+        "rate": {
+          "value": 300.0,
+          "volume_unit": "mL",
+          "time_unit": "hr"
+        },
+        "volume": {
+          "value": 1.5,
+          "unit": "mL"
+        },
+        "direction": "infuse"
+      },
+      {
+        "function": "beep"
+      },
+
+      {
+        "function": "loop start"
+      },
+      {
+        "function": "pause",
+        "time": 60
+      },
+      {
+        "function": "rate",
+        "rate": {
+          "value": 500.0,
+          "volume_unit": "mL",
+          "time_unit": "hr"
+        },
+        "volume": {
+          "value": 3.75,
+          "unit": "mL"
+        },
+        "direction": "infuse"
+      },
+      {
+        "function": "loop for",
+        "n_times": 3
+      },
+
+      {
+        "function": "rate",
+        "rate": {
+          "value": 900.0,
+          "volume_unit": "mL",
+          "time_unit": "hr"
+        },
+        "volume": {
+          "value": 17.25,
+          "unit": "mL"
+        },
+        "direction": "infuse"
+      },
+      {
+        "function": "beep"
+      },
+
+      {
+        "function": "pause",
+        "time": "trigger"
+      },
+      {
+        "function": "loop end"
+      }
+    ]
+  }
+]

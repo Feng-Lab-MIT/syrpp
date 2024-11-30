@@ -1,11 +1,13 @@
 import serial
 import serial.tools.list_ports
 
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, Union, List
 import warnings
 
 from src.syrpp.exception import *
 
+
+PumpProgram = List[Dict[str, Any]]
 
 class SyrPump:
     PROMPT = {
@@ -49,6 +51,8 @@ class SyrPump:
         'ST': ['start only', 'start']
     }
 
+    RATE_FUNCTION = ['RAT', 'INC', 'DEC']
+
     PHASE_FUNCTION = {
         # rate data functions
         'RAT': 'rate',
@@ -57,7 +61,7 @@ class SyrPump:
         # non-rate data functions
         'STP': 'stop',
         'JMP': 'jump',          # jump to program phase n
-        'LOP': 'loop to',       # loop to previous loop start n times
+        'LOP': 'loop for',      # loop to previous loop start n times
         'LPS': 'loop start',    # loop start phase
         'LPE': 'loop end',      # loop end phase
         'PAS': 'pause',         # pause pumping for n seconds
@@ -79,7 +83,7 @@ class SyrPump:
 
     VOLUME_UNITS = {
         'U': ['\u03bcl', 'ul', 'microliter'],
-        'M': ['ml', 'milliliter', 'cc']
+        'M': ['ml', 'mL', 'milliliter', 'cc']
     }
 
     TIME_UNITS = {
@@ -117,12 +121,64 @@ class SyrPump:
     def __del__(self):
         self.serial.close()
 
+    def set_program(self, programs: PumpProgram):
+        for item in programs:
+            addr = item['address']
+            if isinstance(addr, int):
+                addr = [addr]
+            elif isinstance(addr, str) and addr == 'all':
+                pass
+            elif isinstance(addr, Sequence):
+                pass
+            else:
+                raise ValueError(f'invalid address: {addr}')
+            prog = item['program']
+            for a in addr:
+                if 'diameter' in item.keys():
+                    self.set_diameter(address=a, diameter=item['diameter'])
+                for i, func in enumerate(prog):
+                    phase = i + 1
+                    self.set_phase(address=a, phase=phase)
+                    kwargs = dict()
+                    f = func['function']
+                    f_code = self._from_dict_value(self.PHASE_FUNCTION, f)
+                    if f_code not in self.RATE_FUNCTION:
+                        data = {k: v for k, v in func.items() if k != 'function'}
+                        if len(data) >= 1:
+                            assert len(data) == 1, "only one data is allowed"
+                            kwargs['data'] = list(data.values())[0]
+                    self.set_function(address=a, function=f, **kwargs)
+                    if f_code in self.RATE_FUNCTION:
+                        if 'rate' in func:
+                            self.set_rate(address=a, **func['rate'])
+                        if 'volume' in func:
+                            self.set_volume(address=a, **func['volume'])
+                        if 'direction' in func:
+                            self.set_direction(address=a, direction=func['direction'])
+
     def get_diameter(self, address: int) -> float:
         r = self._cmd(address, 'DIA')
         return float(r['data'])
 
     def set_diameter(self, address: int, diameter: float):
         self._cmd(address, 'DIA', self._float(diameter))
+
+    def get_volume(self, address: int) -> float:
+        r = self._cmd(address, 'VOL')
+        vol = r['data'][:-2]
+        unit = r['data'][-2:]
+        assert unit[-1] == 'L', f"invalid volume unit {unit}"
+        return dict(
+            volume=float(vol),
+            unit=self._from_dict_key(self.VOLUME_UNITS, unit[0]),
+        )
+
+    def set_volume(self, address: int, value: Optional[float] = None, unit: Optional[str] = None):
+        assert not (value is None and unit is None), "must specify either volume or volume unit"
+        if value is not None:
+            self._cmd(address, 'VOL', self._float(value))
+        if unit is not None:
+            self._cmd(address, 'VOL', self._from_dict_value(self.VOLUME_UNITS, unit) + 'L')
 
     def get_phase(self, address: int) -> int:
         r = self._cmd(address, 'PHN')
@@ -149,14 +205,19 @@ class SyrPump:
         ret['function'] = self._from_dict_key(self.PHASE_FUNCTION, f)
         return ret
 
-    def set_function(self, address: int, function: str, data: Optional[int] = None):
+    def set_function(self, address: int, function: str, data: Optional[Union[int, str]] = None):
         f = self._from_dict_value(self.PHASE_FUNCTION, function)
         args = list()
         args.append(f)
         if data is not None:
             assert f in self.PHASE_FUN_DATA.keys(), f"function {f} should not have data"
+            if f == 'PAS':
+                # pause and wait for trigger
+                if data == 'trigger':
+                    data = 0
+            assert isinstance(data, int), f"data type for function {function} invalid"
             args.append(data)
-        self._cmd(address, 'BUZ', *args)
+        self._cmd(address, 'FUN', *args)
 
     def get_rate(self, address: int) -> Dict[str, Any]:
         r = self._cmd(address, 'RAT')
@@ -166,10 +227,16 @@ class SyrPump:
             time_unit=self._from_dict_key(self.TIME_UNITS, r['data'][-1])
         )
 
-    def set_rate(self, address: int, rate: float, volume_unit: str, time_unit: str):
-        vu = self._from_dict_value(self.VOLUME_UNITS, volume_unit)
-        tu = self._from_dict_value(self.TIME_UNITS, time_unit)
-        self._cmd(address, 'RAT', self._float(rate), vu, tu)
+    def set_rate(self, address: int, value: float,
+                 volume_unit: Optional[str] = None, time_unit: Optional[str] = None):
+        args = list()
+        args.append(self._float(value))
+        assert (volume_unit is None) == (time_unit is None), \
+            "must specify both or neither volume and time unit"
+        if volume_unit is not None and time_unit is not None:
+            args.append(self._from_dict_value(self.VOLUME_UNITS, volume_unit))
+            args.append(self._from_dict_value(self.TIME_UNITS, time_unit))
+        self._cmd(address, 'RAT', *args)
 
     def get_direction(self, address: int) -> str:
         r = self._cmd(address, 'DIR')
@@ -183,9 +250,9 @@ class SyrPump:
         r = self._cmd(address, 'SAF')
         timeout = int(r['data'])
         if timeout == 0:
-            return {'mode': 'basic'}
+            return dict(mode='basic')
         else:
-            return {'mode': 'safe', 'timeout': timeout}
+            return dict(mode='safe', timeout=timeout)
 
     def set_com_mode(self, address: int, mode: str, timeout: int = None):
         args = list()
@@ -346,6 +413,8 @@ class SyrPump:
         maximum of 4 digits plus 1 decimal point
         maximum of 3 digits to the right of the decimal point
         """
+        assert 0 <= f <= 9999, f"float {f} out of range"
+        _f = f
         f = str(round(f, 3))
         if '.' in f:
             if len(f) >= 5:
@@ -365,9 +434,8 @@ class SyrPump:
 
     @staticmethod
     def _from_dict_value(d: dict, v: str) -> str:
-        assert v in d.values(), f"unknown value {v}"
         k = [k for k, _v in d.items() if isinstance(_v, list) and v in _v or _v == v]
-        assert len(k) == 1
+        assert len(k) == 1, f"unknown value {v}"
         return k[0]
 
     @staticmethod
