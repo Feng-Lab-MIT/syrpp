@@ -12,9 +12,13 @@ pip install -e .
 
 ## Quick Start
 
+### Manual Setup
+
+Pump **address** and **Baud rate** need to be set on pump manually before using the package. 
+
 ### Basic Features
 
-To connect to a pump network, just instatiate an object of class `SyrPump`:
+To connect to a pump network, just instantiate an object of class `SyrPump`:
 
 ```python
 p = SyrPump('COM7')
@@ -23,12 +27,7 @@ p = SyrPump('COM7')
 Then we can get/set any parameters of the pumps:
 
 ```python
-p.get_firmware_version(0)
-```
-
-which returns
-
-```
+>>> p.get_firmware_version(0)
 NE1000V3.934
 ```
 

@@ -8,7 +8,7 @@
     "com_mode": "basic",
     "alarm": false,
     "power_fail": false,
-    "trigger": "foot",
+    "trigger": "foot switch",
     "key_beep": false,
     "ttl_output": {
       "5": 0
