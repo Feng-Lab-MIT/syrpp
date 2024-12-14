@@ -240,7 +240,7 @@ class SyrPump:
                                     _k_code = self._from_dict_value(self.COMMAND, _k)
                                     if _k_code == 'FUN':
                                         continue
-                                    elif _k in self.RATE_PARAM:
+                                    elif _k_code in self.RATE_PARAM:
                                         p = func[_k]
                                         if isinstance(p, dict):
                                             getattr(self, f"set_{_k}")(a, **p)
